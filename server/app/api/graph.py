@@ -12,8 +12,10 @@ from app.models import (
     SearchItem,
     SearchRequest,
     SearchResult,
+    UpdateConceptRequest,
+    CreateRelatedRequest,
 )
-from app.utils import get_embedding
+from app.utils import get_embedding, sanitize_text
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
@@ -298,6 +300,103 @@ async def get_node_detail(node_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching node: {str(e)}")
+
+
+@router.get("/node/{node_id}/relations")
+async def get_node_relations(node_id: str):
+    """Get all relations (mentions/related) for a node"""
+    db.connect()
+    try:
+        relations = db.get_node_relations(node_id)
+
+        def _fmt(val):
+            if hasattr(val, "table_name") and hasattr(val, "record_id"):
+                return f"{val.table_name}:{val.record_id}"
+            if isinstance(val, dict) and "id" in val:
+                return str(val["id"])
+            return str(val)
+
+        result = {"mentions_in": [], "mentions_out": [], "related": []}
+        for row in relations.get("mentions_out", []):
+            result["mentions_out"].append({
+                "concept_id": _record_to_id(row.get("out")),
+                "concept_name": row.get("concept", {}).get("name", "") if isinstance(row.get("concept"), dict) else "",
+                "desc": row.get("desc", ""),
+            })
+        for row in relations.get("mentions_in", []):
+            result["mentions_in"].append({
+                "doc_id": _record_to_id(row.get("in")),
+                "doc_title": row.get("doc", {}).get("title", "") if isinstance(row.get("doc"), dict) else "",
+                "desc": row.get("desc", ""),
+            })
+        for row in relations.get("related", []):
+            result["related"].append({
+                "from_id": _record_to_id(row.get("in")),
+                "to_id": _record_to_id(row.get("out")),
+                "desc": row.get("desc", ""),
+            })
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching relations: {str(e)}")
+
+
+@router.put("/concept/{concept_id}")
+async def update_concept(concept_id: str, request: UpdateConceptRequest):
+    """Update a concept's name and description"""
+    db.connect()
+    try:
+        name = sanitize_text(request.name)
+        desc = sanitize_text(request.desc)
+        embedding = await get_embedding(f"{name}: {desc}")
+        db.update_concept(concept_id, name, desc, embedding)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating concept: {str(e)}")
+
+
+@router.delete("/concept/{concept_id}")
+async def delete_concept(concept_id: str):
+    """Delete a concept and all its relations"""
+    db.connect()
+    try:
+        db.delete_concept(concept_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting concept: {str(e)}")
+
+
+@router.delete("/relation/mention")
+async def delete_mention(doc_id: str, concept_id: str):
+    """Delete a mentions relation"""
+    db.connect()
+    try:
+        db.delete_mention(doc_id, concept_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting mention: {str(e)}")
+
+
+@router.delete("/relation/related")
+async def delete_related_edge(from_id: str, to_id: str):
+    """Delete a related relation"""
+    db.connect()
+    try:
+        db.delete_related(from_id, to_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting relation: {str(e)}")
+
+
+@router.post("/relation/related")
+async def create_related_edge(request: CreateRelatedRequest):
+    """Create a related relation between two concepts"""
+    db.connect()
+    try:
+        desc = sanitize_text(request.desc or "")
+        db.create_related(request.from_id, request.to_id, desc or None)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating relation: {str(e)}")
 
 
 @router.post("/search", response_model=SearchResult)

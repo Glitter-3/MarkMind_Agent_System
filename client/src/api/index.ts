@@ -8,6 +8,7 @@ import type {
     ParseResponse,
     DocumentPreview,
     ConfirmImportRequest,
+    UpdateDocumentRequest,
 } from '@/types'
 
 // API base can be configured via Vite env var `VITE_API_BASE` (e.g. in .env)
@@ -83,6 +84,16 @@ export async function uploadDocument(
     return res.json()
 }
 
+export async function updateDocument(docId: string, request: UpdateDocumentRequest): Promise<unknown> {
+    const res = await fetch(`${API_BASE}/ingest/documents/${encodeURIComponent(docId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+    })
+    if (!res.ok) throw new Error('Failed to update document')
+    return res.json()
+}
+
 export async function deleteDocument(docId: string): Promise<unknown> {
     const res = await fetch(`${API_BASE}/ingest/documents/${encodeURIComponent(docId)}`, {
         method: 'DELETE',
@@ -131,5 +142,54 @@ export async function confirmImport(request: ConfirmImportRequest): Promise<unkn
         body: JSON.stringify(request),
     })
     if (!res.ok) throw new Error('Failed to confirm import')
+    return res.json()
+}
+
+// Graph mutation API
+export async function getNodeRelations(nodeId: string): Promise<unknown> {
+    const res = await fetch(`${API_BASE}/graph/node/${encodeURIComponent(nodeId)}/relations`)
+    if (!res.ok) throw new Error('Failed to fetch relations')
+    return res.json()
+}
+
+export async function updateConcept(conceptId: string, name: string, desc: string): Promise<unknown> {
+    const res = await fetch(`${API_BASE}/graph/concept/${encodeURIComponent(conceptId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, desc }),
+    })
+    if (!res.ok) throw new Error('Failed to update concept')
+    return res.json()
+}
+
+export async function deleteConcept(conceptId: string): Promise<unknown> {
+    const res = await fetch(`${API_BASE}/graph/concept/${encodeURIComponent(conceptId)}`, {
+        method: 'DELETE',
+    })
+    if (!res.ok) throw new Error('Failed to delete concept')
+    return res.json()
+}
+
+export async function deleteMention(docId: string, conceptId: string): Promise<unknown> {
+    const url = `${API_BASE}/graph/relation/mention?doc_id=${encodeURIComponent(docId)}&concept_id=${encodeURIComponent(conceptId)}`
+    const res = await fetch(url, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to delete mention')
+    return res.json()
+}
+
+export async function deleteRelated(fromId: string, toId: string): Promise<unknown> {
+    const url = `${API_BASE}/graph/relation/related?from_id=${encodeURIComponent(fromId)}&to_id=${encodeURIComponent(toId)}`
+    const res = await fetch(url, { method: 'DELETE' })
+    if (!res.ok) throw new Error('Failed to delete relation')
+    return res.json()
+}
+
+export async function createRelated(fromId: string, toId: string, desc: string): Promise<unknown> {
+    const res = await fetch(`${API_BASE}/graph/relation/related`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_id: fromId, to_id: toId, desc }),
+    })
+    if (!res.ok) throw new Error('Failed to create relation')
     return res.json()
 }

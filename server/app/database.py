@@ -152,7 +152,7 @@ class Database:
             CREATE chunk CONTENT {{
                 text: $text,
                 embedding: $embedding,
-                source: type::thing($table, $record_id)
+                source: type::record($table, $record_id)
             }}
             """,
             {
@@ -244,7 +244,7 @@ class Database:
         # Check if the mentions relation already exists
         try:
             res = self.conn.query(
-                "SELECT * FROM mentions WHERE `in` = type::thing($in_table, $in_id) AND `out` = type::thing($out_table, $out_id)",
+                "SELECT * FROM mentions WHERE `in` = type::record($in_table, $in_id) AND `out` = type::record($out_table, $out_id)",
                 {
                     "in_table": in_table,
                     "in_id": in_id,
@@ -301,7 +301,7 @@ class Database:
         # Check if the related relation already exists
         try:
             res = self.conn.query(
-                "SELECT * FROM related WHERE `in` = type::thing($in_table, $in_id) AND `out` = type::thing($out_table, $out_id)",
+                "SELECT * FROM related WHERE `in` = type::record($in_table, $in_id) AND `out` = type::record($out_table, $out_id)",
                 {
                     "in_table": in_table,
                     "in_id": in_id,
@@ -451,6 +451,126 @@ class Database:
                     chunks.append(item)
         return chunks
 
+    def update_concept(self, concept_id: str, name: str, desc: str, embedding: list[float]) -> bool:
+        """Update concept name, desc and embedding"""
+        if self.conn is None:
+            return False
+        if ":" in concept_id:
+            table, record_id = concept_id.split(":", 1)
+        else:
+            table, record_id = "concept", concept_id
+        self.conn.query(
+            "UPDATE type::record($table, $record_id) SET name = $name, desc = $desc, embedding = $embedding",
+            {"table": table, "record_id": record_id, "name": name, "desc": desc, "embedding": embedding},
+        )
+        return True
+
+    def delete_concept(self, concept_id: str):
+        """Delete a concept and all its relations"""
+        if self.conn is None:
+            return
+        if ":" in concept_id:
+            table, record_id = concept_id.split(":", 1)
+        else:
+            table, record_id = "concept", concept_id
+        try:
+            self.conn.query(
+                "DELETE FROM mentions WHERE `out` = type::record($table, $record_id)",
+                {"table": table, "record_id": record_id},
+            )
+        except Exception:
+            pass
+        try:
+            self.conn.query(
+                "DELETE FROM related WHERE `in` = type::record($table, $record_id) OR `out` = type::record($table, $record_id)",
+                {"table": table, "record_id": record_id},
+            )
+        except Exception:
+            pass
+        self.conn.delete(concept_id)
+
+    def delete_mention(self, doc_id: str, concept_id: str):
+        """Delete a specific mentions edge"""
+        if self.conn is None:
+            return
+        if ":" in doc_id:
+            in_table, in_id = doc_id.split(":", 1)
+        else:
+            in_table, in_id = "doc", doc_id
+        if ":" in concept_id:
+            out_table, out_id = concept_id.split(":", 1)
+        else:
+            out_table, out_id = "concept", concept_id
+        self.conn.query(
+            "DELETE FROM mentions WHERE `in` = type::record($in_table, $in_id) AND `out` = type::record($out_table, $out_id)",
+            {"in_table": in_table, "in_id": in_id, "out_table": out_table, "out_id": out_id},
+        )
+
+    def delete_related(self, concept1_id: str, concept2_id: str):
+        """Delete a specific related edge (both directions)"""
+        if self.conn is None:
+            return
+        if ":" in concept1_id:
+            t1, r1 = concept1_id.split(":", 1)
+        else:
+            t1, r1 = "concept", concept1_id
+        if ":" in concept2_id:
+            t2, r2 = concept2_id.split(":", 1)
+        else:
+            t2, r2 = "concept", concept2_id
+        self.conn.query(
+            "DELETE FROM related WHERE (`in` = type::record($t1, $r1) AND `out` = type::record($t2, $r2)) OR (`in` = type::record($t2, $r2) AND `out` = type::record($t1, $r1))",
+            {"t1": t1, "r1": r1, "t2": t2, "r2": r2},
+        )
+
+    def get_node_relations(self, node_id: str) -> dict:
+        """Get all relations for a node (mentions and related edges)"""
+        if self.conn is None:
+            return {"mentions": [], "related": []}
+        mentions_in = []
+        mentions_out = []
+        related_edges = []
+        if node_id.startswith("doc:"):
+            if ":" in node_id:
+                table, record_id = node_id.split(":", 1)
+            else:
+                table, record_id = "doc", node_id
+            result = self.conn.query(
+                "SELECT *, `out`.* AS concept FROM mentions WHERE `in` = type::record($table, $record_id)",
+                {"table": table, "record_id": record_id},
+            )
+            rows = self._normalize_rows(result)
+            mentions_out = rows
+        elif node_id.startswith("concept:"):
+            if ":" in node_id:
+                table, record_id = node_id.split(":", 1)
+            else:
+                table, record_id = "concept", node_id
+            result = self.conn.query(
+                "SELECT *, `in`.* AS doc FROM mentions WHERE `out` = type::record($table, $record_id)",
+                {"table": table, "record_id": record_id},
+            )
+            rows = self._normalize_rows(result)
+            mentions_in = rows
+            result2 = self.conn.query(
+                "SELECT * FROM related WHERE `in` = type::record($table, $record_id) OR `out` = type::record($table, $record_id)",
+                {"table": table, "record_id": record_id},
+            )
+            related_edges = self._normalize_rows(result2)
+        return {"mentions_in": mentions_in, "mentions_out": mentions_out, "related": related_edges}
+
+    def _normalize_rows(self, result) -> list:
+        if not result:
+            return []
+        first = result[0]
+        if isinstance(first, dict) and "result" in first and isinstance(first["result"], list):
+            return first["result"]
+        if isinstance(first, list):
+            return first
+        if all(isinstance(item, dict) for item in result):
+            return result
+        return []
+
     def get_concept(self, concept_id: str) -> Optional[dict]:
         """Get a concept by ID (normalize to a single dict)"""
         if self.conn is None:
@@ -566,6 +686,40 @@ class Database:
             ]
         return []
 
+    def update_doc(
+        self,
+        doc_id: str,
+        title: str,
+        summary: str,
+        content: str,
+        url: Optional[str] = None,
+    ) -> bool:
+        """Update an existing document's fields"""
+        if self.conn is None:
+            return False
+        if ":" in doc_id:
+            table, record_id = doc_id.split(":", 1)
+        else:
+            table, record_id = "doc", doc_id
+        self.conn.query(
+            """
+            UPDATE type::record($table, $record_id) SET
+                title = $title,
+                summary = $summary,
+                content = $content,
+                url = $url
+            """,
+            {
+                "table": table,
+                "record_id": record_id,
+                "title": title,
+                "summary": summary,
+                "content": content,
+                "url": url,
+            },
+        )
+        return True
+
     def delete_doc(self, doc_id: str):
         """Delete a document by ID and its related chunks/mentions.
 
@@ -585,7 +739,7 @@ class Database:
         # Delete chunks that reference this document (chunk.source is a record<doc>)
         try:
             self.conn.query(
-                "DELETE FROM chunk WHERE source = type::thing($table, $record_id)",
+                "DELETE FROM chunk WHERE source = type::record($table, $record_id)",
                 {"table": table, "record_id": record_id},
             )
         except Exception:
@@ -595,7 +749,7 @@ class Database:
         # Delete mentions edges where this document is the 'in' side
         try:
             self.conn.query(
-                "DELETE FROM mentions WHERE `in` = type::thing($table, $record_id)",
+                "DELETE FROM mentions WHERE `in` = type::record($table, $record_id)",
                 {"table": table, "record_id": record_id},
             )
         except Exception:

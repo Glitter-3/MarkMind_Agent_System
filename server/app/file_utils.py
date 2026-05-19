@@ -73,6 +73,8 @@ async def fetch_url_content(url: str) -> tuple[str, str, str]:
         tuple of (title, content, detected_type)
     """
 
+    is_xhs = "xiaohongshu.com" in url or "xhscdn.com" in url
+
     # Special handling for Xiaohongshu explore pages using included spider
     try:
         if "xiaohongshu.com" in url and "/explore/" in url:
@@ -117,12 +119,18 @@ async def fetch_url_content(url: str) -> tuple[str, str, str]:
                 content = "\n".join(parts)
                 content = sanitize_text(content)
                 return title, content, "xhs"
+
+            raise ValueError(msg or "小红书笔记抓取失败。")
     except Exception as e:
-        print(
-            f"Xiaohongshu spider failed, falling back to normal URL fetching. Error: {e}"
+        import traceback
+        print("Xiaohongshu spider failed:")
+        traceback.print_exc()
+        raise
+
+    if is_xhs:
+        raise ValueError(
+            "当前仅支持 /explore/ 形式的小红书笔记链接。若链接格式正确但仍失败，可能是笔记不可见、Cookie 失效，或 spider 与当前接口不兼容。"
         )
-        # If anything failed with spider, we fall back to normal fetching below
-        pass
 
     async with aiohttp.ClientSession() as session:
         async with session.get(
@@ -139,23 +147,39 @@ async def fetch_url_content(url: str) -> tuple[str, str, str]:
 
             # Handle HTML - convert to markdown
             elif "text/html" in content_type:
+                import re
+
                 from markdownify import markdownify as md
 
                 html_content = content_bytes.decode("utf-8", errors="ignore")
-                content = md(html_content, heading_style="ATX")
 
                 # Try to extract title from HTML
-                import re
-
                 title_match = re.search(
                     r"<title>(.*?)</title>", html_content, re.IGNORECASE
                 )
                 title = title_match.group(1) if title_match else url.split("/")[-1]
 
-                return title, content, "md"
+                content = md(html_content, heading_style="ATX")
+
+                # Remove base64 encoded images (data:image/...;base64,...)
+                content = re.sub(
+                    r"!\[.*?\]\(data:image/[^;]+;base64,[A-Za-z0-9+/=]+\)",
+                    "",
+                    content,
+                )
+                # Remove leftover data URI references not wrapped in markdown image syntax
+                content = re.sub(r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+", "", content)
+                # Convert hashtag links [#标签](url) → #标签
+                content = re.sub(r"\[(\#[^\]]+)\]\([^)]*\)", r"\1", content)
+                # Collapse runs of blank lines introduced by removals
+                content = re.sub(r"\n{3,}", "\n\n", content).strip()
+
+                detected_type = "xhs" if is_xhs else "md"
+                return title, content, detected_type
 
             # Handle plain text/markdown
             else:
                 content = content_bytes.decode("utf-8", errors="ignore")
                 title = url.split("/")[-1]
-                return title, content, "text"
+                detected_type = "xhs" if is_xhs else "text"
+                return title, content, detected_type

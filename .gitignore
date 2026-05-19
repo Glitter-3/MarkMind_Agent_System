@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# local env
+.env
+client/.env
+client/src/.env
+server/.env
+server/spider_xhs/.env
+
+# local database
+markmind.db/
+server/markmind.db/
+
+# Claude local files
+.claude/
+

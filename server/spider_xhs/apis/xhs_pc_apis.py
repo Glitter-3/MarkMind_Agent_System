@@ -2,6 +2,7 @@
 import json
 import re
 import urllib
+from urllib.parse import parse_qs
 import requests
 from xhs_utils.xhs_util import splice_str, generate_request_params, generate_x_b3_traceid, get_common_headers
 from loguru import logger
@@ -13,6 +14,15 @@ from loguru import logger
 class XHS_Apis():
     def __init__(self):
         self.base_url = "https://edith.xiaohongshu.com"
+
+    @staticmethod
+    def _parse_query_params(url: str) -> dict:
+        query = urllib.parse.urlparse(url).query
+        return {
+            key: values[0]
+            for key, values in parse_qs(query, keep_blank_values=True).items()
+            if values
+        }
 
     def get_homefeed_all_channel(self, cookies_str: str, proxies: dict = None):
         """
@@ -204,8 +214,7 @@ class XHS_Apis():
         try:
             urlParse = urllib.parse.urlparse(user_url)
             user_id = urlParse.path.split("/")[-1]
-            kvs = urlParse.query.split('&')
-            kvDist = {kv.split('=')[0]: kv.split('=')[1] for kv in kvs}
+            kvDist = self._parse_query_params(user_url)
             xsec_token = kvDist['xsec_token'] if 'xsec_token' in kvDist else ""
             xsec_source = kvDist['xsec_source'] if 'xsec_source' in kvDist else "pc_search"
             while True:
@@ -266,8 +275,7 @@ class XHS_Apis():
         try:
             urlParse = urllib.parse.urlparse(user_url)
             user_id = urlParse.path.split("/")[-1]
-            kvs = urlParse.query.split('&')
-            kvDist = {kv.split('=')[0]: kv.split('=')[1] for kv in kvs}
+            kvDist = self._parse_query_params(user_url)
             xsec_token = kvDist['xsec_token'] if 'xsec_token' in kvDist else ""
             xsec_source = kvDist['xsec_source'] if 'xsec_source' in kvDist else "pc_user"
             while True:
@@ -329,8 +337,7 @@ class XHS_Apis():
         try:
             urlParse = urllib.parse.urlparse(user_url)
             user_id = urlParse.path.split("/")[-1]
-            kvs = urlParse.query.split('&')
-            kvDist = {kv.split('=')[0]: kv.split('=')[1] for kv in kvs}
+            kvDist = self._parse_query_params(user_url)
             xsec_token = kvDist['xsec_token'] if 'xsec_token' in kvDist else ""
             xsec_source = kvDist['xsec_source'] if 'xsec_source' in kvDist else "pc_search"
             while True:
@@ -363,8 +370,7 @@ class XHS_Apis():
         try:
             urlParse = urllib.parse.urlparse(url)
             note_id = urlParse.path.split("/")[-1]
-            kvs = urlParse.query.split('&')
-            kvDist = {kv.split('=')[0]: kv.split('=')[1] for kv in kvs}
+            kvDist = self._parse_query_params(url)
             api = f"/api/sns/web/v1/feed"
             data = {
                 "source_note_id": note_id,
@@ -739,8 +745,7 @@ class XHS_Apis():
         try:
             urlParse = urllib.parse.urlparse(url)
             note_id = urlParse.path.split("/")[-1]
-            kvs = urlParse.query.split('&')
-            kvDist = {kv.split('=')[0]: kv.split('=')[1] for kv in kvs}
+            kvDist = self._parse_query_params(url)
             success, msg, out_comment_list = self.get_note_all_out_comment(note_id, kvDist['xsec_token'], cookies_str, proxies)
             if not success:
                 raise Exception(msg)

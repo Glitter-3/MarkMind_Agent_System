@@ -204,7 +204,7 @@ async function loadGraph() {
         // Create sigma instance
         sigmaInstance = new Sigma(graphInstance, containerRef.value, {
             renderLabels: true,
-            labelRenderedSizeThreshold: 6,
+            labelRenderedSizeThreshold: 3,
             labelFont: 'Inter, system-ui, sans-serif',
             labelSize: 12,
             labelColor: { color: '#57534e' },

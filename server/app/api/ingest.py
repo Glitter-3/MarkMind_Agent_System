@@ -16,6 +16,7 @@ from app.models import (
     ExtractedRelation,
     ParseRequest,
     ParseResponse,
+    UpdateDocumentRequest,
 )
 from app.utils import (
     chunk_text,
@@ -85,8 +86,9 @@ async def parse_document(request: ParseRequest):
             )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error parsing document: {str(e)}")
-
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/preview", response_model=DocumentPreview)
 async def preview_document(
@@ -421,6 +423,43 @@ async def get_documents():
         raise HTTPException(
             status_code=500, detail=f"Error fetching documents: {str(e)}"
         )
+
+
+@router.put("/documents/{doc_id}")
+async def update_document(doc_id: str, request: UpdateDocumentRequest):
+    """
+    Update an existing document's title, summary, content and url.
+    Rebuilds chunks and embeddings from the new content.
+    """
+    db.connect()
+
+    try:
+        title = sanitize_text(request.title)
+        summary = sanitize_text(request.summary)
+        content = sanitize_text(request.content)
+        url_clean = sanitize_text(request.url) if request.url else None
+
+        # Update document fields
+        db.update_doc(doc_id, title, summary, content, url_clean)
+
+        # Rebuild chunks: delete old ones and create new ones
+        old_chunks = db.get_chunks_by_doc(doc_id)
+        for chunk in old_chunks:
+            chunk_id = str(chunk.get("id", ""))
+            if chunk_id:
+                db.conn.delete(chunk_id)  # type: ignore
+
+        chunks = chunk_text(content)
+        if chunks:
+            chunks = [sanitize_text(c) for c in chunks]
+            chunk_embeddings = await get_embeddings(chunks)
+            for chunk_text_content, chunk_embedding in zip(chunks, chunk_embeddings):
+                db.create_chunk(chunk_text_content, chunk_embedding, doc_id)
+
+        return {"success": True, "message": "Document updated successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating document: {str(e)}")
 
 
 @router.delete("/documents/{doc_id}")

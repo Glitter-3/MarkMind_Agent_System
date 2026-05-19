@@ -203,3 +203,23 @@ class ConfirmImportRequest(BaseModel):
     url: Optional[str] = None
     concepts: list[ExtractedConcept]
     relations: list[ExtractedRelation]
+
+
+class UpdateDocumentRequest(BaseModel):
+    """Update an existing document"""
+
+    title: str
+    summary: str
+    content: str
+    url: Optional[str] = None
+
+
+class UpdateConceptRequest(BaseModel):
+    name: str
+    desc: str
+
+
+class CreateRelatedRequest(BaseModel):
+    from_id: str
+    to_id: str
+    desc: Optional[str] = None

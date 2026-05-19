@@ -146,3 +146,10 @@ export interface ConfirmImportRequest {
     concepts: ExtractedConcept[]
     relations: ExtractedRelation[]
 }
+
+export interface UpdateDocumentRequest {
+    title: string
+    summary: string
+    content: string
+    url?: string | null
+}
