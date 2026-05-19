@@ -42,7 +42,7 @@ MarkMind 是一个面向个人知识管理场景构建的智能知识库系统�
 
 <img src="assets/文档导入.png" width="100%">
 
-<img src="assets/概念识别及匹配.png" width="100%">
+<img src="assets/match.png" width="100%">
 
 <img src="assets/主界面.png" width="100%">
 
