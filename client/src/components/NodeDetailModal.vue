@@ -8,7 +8,7 @@ import Textarea from '@/components/ui/Textarea.vue'
 import Spinner from '@/components/ui/Spinner.vue'
 import { Plus, Pencil, Trash, X } from 'lucide-vue-next'
 import type { GraphNode, NodeDetail } from '@/types'
-import { getNodeDetail, getNodeRelations, updateConcept, deleteConcept, deleteMention, deleteRelated, createRelated } from '@/api'
+import { getGraphOverview, getNodeDetail, getNodeRelations, updateConcept, deleteConcept, deleteMention, deleteRelated, createRelated, updateDocument, deleteDocument } from '@/api'
 import { getTypeLabel, getBadgeStyle } from '@/lib/nodeTypes'
 
 const props = defineProps<{
@@ -31,18 +31,21 @@ const error = ref<string | null>(null)
 const relations = ref<any>(null)
 const relationsLoading = ref(false)
 
-// Edit concept state
+// Edit state
 const editing = ref(false)
-const editForm = ref({ name: '', desc: '' })
+const editForm = ref({ title: '', summary: '', content: '', url: '' })
 const editLoading = ref(false)
 const editError = ref('')
 
 // Add related state
 const addingRelated = ref(false)
-const newRelatedId = ref('')
+const newRelatedName = ref('')
 const newRelatedDesc = ref('')
 const addRelatedError = ref('')
 const addRelatedLoading = ref(false)
+const conceptOptions = ref<GraphNode[]>([])
+const conceptOptionsLoading = ref(false)
+const conceptOptionsListId = 'related-concept-options'
 
 watch(
     () => props.node,
@@ -51,6 +54,9 @@ watch(
             detail.value = null
             relations.value = null
             editing.value = false
+            addingRelated.value = false
+            newRelatedName.value = ''
+            newRelatedDesc.value = ''
             return
         }
         loading.value = true
@@ -65,8 +71,20 @@ watch(
         }
         // Load relations
         loadRelations(newNode.id)
+        if (newNode.type === 'concept') {
+            void loadConceptOptions()
+        }
     },
     { immediate: true },
+)
+
+watch(
+    () => addingRelated.value,
+    (isOpen) => {
+        if (isOpen && isConcept.value) {
+            void loadConceptOptions()
+        }
+    },
 )
 
 async function loadRelations(nodeId: string) {
@@ -80,9 +98,27 @@ async function loadRelations(nodeId: string) {
     }
 }
 
+async function loadConceptOptions() {
+    if (conceptOptions.value.length > 0 || conceptOptionsLoading.value) return
+    conceptOptionsLoading.value = true
+    try {
+        const overview = await getGraphOverview()
+        conceptOptions.value = overview.nodes.filter((node) => node.type === 'concept')
+    } catch (e) {
+        conceptOptions.value = []
+    } finally {
+        conceptOptionsLoading.value = false
+    }
+}
+
 function startEdit() {
     if (!detail.value) return
-    editForm.value = { name: detail.value.node.label, desc: detail.value.node.desc || '' }
+    editForm.value = {
+        title: detail.value.node.label,
+        summary: detail.value.node.desc || '',
+        content: detail.value.full_content || '',
+        url: detail.value.node.url || '',
+    }
     editError.value = ''
     editing.value = true
 }
@@ -92,7 +128,16 @@ async function submitEdit() {
     editLoading.value = true
     editError.value = ''
     try {
-        await updateConcept(props.node.id, editForm.value.name, editForm.value.desc)
+        if (isConcept.value) {
+            await updateConcept(props.node.id, editForm.value.title, editForm.value.summary)
+        } else if (isDoc.value) {
+            await updateDocument(props.node.id, {
+                title: editForm.value.title,
+                summary: editForm.value.summary,
+                content: editForm.value.content,
+                url: editForm.value.url || null,
+            })
+        }
         editing.value = false
         detail.value = await getNodeDetail(props.node.id)
         emit('changed')
@@ -103,11 +148,18 @@ async function submitEdit() {
     }
 }
 
-async function handleDeleteConcept() {
+async function handleDeleteNode() {
     if (!props.node) return
-    if (!window.confirm('确定要删除该概念节点吗？相关关系也会一并删除。')) return
+    const confirmText = isConcept.value
+        ? '确定要删除该概念节点吗？相关关系也会一并删除。'
+        : '确定要删除该文档节点吗？此操作不可恢复。'
+    if (!window.confirm(confirmText)) return
     try {
-        await deleteConcept(props.node.id)
+        if (isConcept.value) {
+            await deleteConcept(props.node.id)
+        } else if (isDoc.value) {
+            await deleteDocument(props.node.id)
+        }
         emit('changed')
         emit('update:open', false)
     } catch (e) {
@@ -137,13 +189,37 @@ async function handleDeleteRelated(fromId: string, toId: string) {
     }
 }
 
+function resolveRelatedConceptId(input: string) {
+    const normalized = input.trim()
+    if (!normalized) return null
+    if (normalized.startsWith('concept:')) return normalized
+    const exactMatch = conceptOptions.value.find(
+        (concept) => concept.label.trim().toLowerCase() === normalized.toLowerCase(),
+    )
+    return exactMatch?.id || null
+}
+
+function getConceptLabelById(id: string) {
+    return conceptOptions.value.find((concept) => concept.id === id)?.label || id
+}
+
 async function handleAddRelated() {
-    if (!props.node || !newRelatedId.value.trim()) return
+    if (!props.node || !newRelatedName.value.trim()) return
+    await loadConceptOptions()
+    const targetConceptId = resolveRelatedConceptId(newRelatedName.value)
+    if (!targetConceptId) {
+        addRelatedError.value = '找不到该概念，请从下拉建议中选择或输入准确概念名。'
+        return
+    }
+    if (targetConceptId === props.node.id) {
+        addRelatedError.value = '不能把概念关联到它自己。'
+        return
+    }
     addRelatedLoading.value = true
     addRelatedError.value = ''
     try {
-        await createRelated(props.node.id, newRelatedId.value.trim(), newRelatedDesc.value.trim())
-        newRelatedId.value = ''
+        await createRelated(props.node.id, targetConceptId, newRelatedDesc.value.trim())
+        newRelatedName.value = ''
         newRelatedDesc.value = ''
         addingRelated.value = false
         await loadRelations(props.node.id)
@@ -193,6 +269,7 @@ const linkifiedFullContent = computed(() =>
 )
 
 const isConcept = computed(() => props.node?.type === 'concept')
+const isDoc = computed(() => props.node?.type === 'doc')
 </script>
 
 <template>
@@ -220,12 +297,11 @@ const isConcept = computed(() => props.node?.type === 'concept')
                             加入上下文
                         </Badge>
                     </div>
-                    <!-- concept 操作按钮 -->
-                    <div v-if="isConcept" class="flex gap-2 mr-8">
+                    <div class="flex gap-2 mr-8">
                         <button class="text-stone-400 hover:text-stone-600" @click="startEdit" title="编辑">
                             <Pencil class="h-4 w-4" />
                         </button>
-                        <button class="text-stone-400 hover:text-red-500" @click="handleDeleteConcept" title="删除">
+                        <button class="text-stone-400 hover:text-red-500" @click="handleDeleteNode" title="删除">
                             <Trash class="h-4 w-4" />
                         </button>
                     </div>
@@ -233,8 +309,12 @@ const isConcept = computed(() => props.node?.type === 'concept')
 
                 <!-- 编辑表单 -->
                 <div v-if="editing" class="mt-3 space-y-2">
-                    <Input v-model="editForm.name" placeholder="概念名称" />
-                    <Textarea v-model="editForm.desc" :rows="3" placeholder="概念描述" />
+                    <Input v-model="editForm.title" :placeholder="isConcept ? '概念名称' : '文档标题'" />
+                    <Textarea v-model="editForm.summary" :rows="3" :placeholder="isConcept ? '概念描述' : '文档摘要'" />
+                    <template v-if="isDoc">
+                        <Textarea v-model="editForm.content" :rows="12" placeholder="文档内容" />
+                        <Input v-model="editForm.url" placeholder="可选：文档链接" />
+                    </template>
                     <div v-if="editError" class="text-sm text-red-600">{{ editError }}</div>
                     <div class="flex gap-2">
                         <Button size="sm" @click="submitEdit" :disabled="editLoading">
@@ -274,8 +354,16 @@ const isConcept = computed(() => props.node?.type === 'concept')
                     </div>
                     <!-- Add related form -->
                     <div v-if="addingRelated" class="mb-2 p-3 rounded border border-stone-200 bg-stone-50 space-y-2">
-                        <Input v-model="newRelatedId" placeholder="目标概念 ID（如 concept:xxx）" class="text-sm" />
+                        <Input v-model="newRelatedName" :list="conceptOptionsListId" placeholder="目标概念名称（可从建议中选择）" class="text-sm"
+                            :disabled="conceptOptionsLoading" />
+                        <datalist :id="conceptOptionsListId">
+                            <option v-for="concept in conceptOptions.filter((concept) => concept.id !== node?.id)" :key="concept.id"
+                                :value="concept.label">
+                                {{ concept.id }}
+                            </option>
+                        </datalist>
                         <Input v-model="newRelatedDesc" placeholder="关系描述（可选）" class="text-sm" />
+                        <div class="text-xs text-stone-400">关系描述可留空，也可以填写“属于”“依赖于”“用于”等简短关系。</div>
                         <div v-if="addRelatedError" class="text-sm text-red-600">{{ addRelatedError }}</div>
                         <div class="flex gap-2">
                             <Button size="sm" @click="handleAddRelated" :disabled="addRelatedLoading">
@@ -288,7 +376,7 @@ const isConcept = computed(() => props.node?.type === 'concept')
                         <div v-for="(rel, idx) in relations.related" :key="idx"
                             class="flex items-center justify-between rounded border border-stone-200 bg-white px-3 py-2 text-sm">
                             <span class="text-stone-600">
-                                {{ rel.from_id === node?.id ? rel.to_id : rel.from_id }}
+                                {{ getConceptLabelById(rel.from_id === node?.id ? rel.to_id : rel.from_id) }}
                                 <span v-if="rel.desc" class="text-stone-400 ml-1">— {{ rel.desc }}</span>
                             </span>
                             <button class="text-stone-300 hover:text-red-500 ml-2"
@@ -307,8 +395,16 @@ const isConcept = computed(() => props.node?.type === 'concept')
                         </button>
                     </div>
                     <div v-if="addingRelated" class="mb-2 p-3 rounded border border-stone-200 bg-stone-50 space-y-2">
-                        <Input v-model="newRelatedId" placeholder="目标概念 ID（如 concept:xxx）" class="text-sm" />
+                        <Input v-model="newRelatedName" :list="conceptOptionsListId" placeholder="目标概念名称（可从建议中选择）" class="text-sm"
+                            :disabled="conceptOptionsLoading" />
+                        <datalist :id="conceptOptionsListId">
+                            <option v-for="concept in conceptOptions.filter((concept) => concept.id !== node?.id)" :key="concept.id"
+                                :value="concept.label">
+                                {{ concept.id }}
+                            </option>
+                        </datalist>
                         <Input v-model="newRelatedDesc" placeholder="关系描述（可选）" class="text-sm" />
+                        <div class="text-xs text-stone-400">关系描述可留空，也可以填写“属于”“依赖于”“用于”等简短关系。</div>
                         <div v-if="addRelatedError" class="text-sm text-red-600">{{ addRelatedError }}</div>
                         <div class="flex gap-2">
                             <Button size="sm" @click="handleAddRelated" :disabled="addRelatedLoading">

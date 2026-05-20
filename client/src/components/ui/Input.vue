@@ -7,6 +7,7 @@ interface Props {
     placeholder?: string
     modelValue?: string
     disabled?: boolean
+    list?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -24,6 +25,6 @@ const emit = defineEmits<{
         'flex h-10 w-full rounded-lg border border-stone-300 bg-stone-50 px-3 py-2 text-sm text-stone-700 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-400 disabled:cursor-not-allowed disabled:opacity-50',
         props.class,
     )
-        " :placeholder="props.placeholder" :value="props.modelValue" :disabled="props.disabled"
+        " :placeholder="props.placeholder" :value="props.modelValue" :disabled="props.disabled" :list="props.list"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" />
 </template>

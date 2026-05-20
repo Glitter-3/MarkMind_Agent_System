@@ -14,26 +14,6 @@ from typing import Any, Dict, Optional, Tuple
 from loguru import logger
 
 
-def _check_login_status(apis: Any, cookies_str: str, spider_root: str) -> tuple[bool, str]:
-    old_cwd = os.getcwd()
-    try:
-        os.chdir(spider_root)
-        try:
-            success, msg, _ = apis.get_user_self_info(cookies_str, proxies=None)
-        except Exception as e:
-            return False, f"登录态校验失败: {e}"
-    finally:
-        try:
-            os.chdir(old_cwd)
-        except Exception:
-            pass
-
-    if success:
-        return True, "登录态有效"
-
-    return False, str(msg or "登录态无效")
-
-
 def fetch_xhs_note(note_url: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     """Try to fetch a Xiaohongshu note using the shipped spider_xhs package.
 
@@ -85,9 +65,6 @@ def fetch_xhs_note(note_url: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
             logger.error(f"Failed to init spider_xhs environment: {e}")
             return False, f"Init error: {e}", None
 
-        if not cookies_str or not cookies_str.strip():
-            return False, "未在 spider_xhs/.env 中找到有效的 COOKIES 配置。", None
-
         # Instantiate API and call
         apis = XHS_Apis()
 
@@ -104,25 +81,13 @@ def fetch_xhs_note(note_url: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
 
         if not success:
             logger.info(f"Spider fetch failed for {note_url}: {msg}")
-            return False, f"小红书笔记抓取失败: {msg}", None
+            return False, str(msg), None
 
         # Normalize and return note_info
         try:
-            items = raw.get("data", {}).get("items") if isinstance(raw, dict) else None
-            if not items:
-                login_ok, login_msg = _check_login_status(apis, cookies_str, spider_root)
-                if login_ok:
-                    return (
-                        False,
-                        "小红书接口返回空数据，但当前 Cookie 仍有效。可能是笔记不可见、已删除，或 spider 与当前接口不兼容。",
-                        None,
-                    )
-                return (
-                    False,
-                    f"小红书接口返回空数据，且当前 Cookie 可能已失效。{login_msg}",
-                    None,
-                )
-            note_info = items[0]
+            note_info = raw.get("data", {}).get("items", [None])[0]
+            if note_info is None:
+                return False, "No items in spider response", None
             note_info["url"] = note_url
             note_info = handle_note_info(note_info)
             return True, "成功", note_info

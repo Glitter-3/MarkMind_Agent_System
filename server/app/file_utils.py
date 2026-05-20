@@ -73,8 +73,6 @@ async def fetch_url_content(url: str) -> tuple[str, str, str]:
         tuple of (title, content, detected_type)
     """
 
-    is_xhs = "xiaohongshu.com" in url or "xhscdn.com" in url
-
     # Special handling for Xiaohongshu explore pages using included spider
     try:
         if "xiaohongshu.com" in url and "/explore/" in url:
@@ -119,17 +117,17 @@ async def fetch_url_content(url: str) -> tuple[str, str, str]:
                 content = "\n".join(parts)
                 content = sanitize_text(content)
                 return title, content, "xhs"
-
-            raise ValueError(msg or "小红书笔记抓取失败。")
     except Exception as e:
         import traceback
         print("Xiaohongshu spider failed:")
         traceback.print_exc()
         raise
 
+    is_xhs = "xiaohongshu.com" in url or "xhscdn.com" in url
+
     if is_xhs:
         raise ValueError(
-            "当前仅支持 /explore/ 形式的小红书笔记链接。若链接格式正确但仍失败，可能是笔记不可见、Cookie 失效，或 spider 与当前接口不兼容。"
+            "小红书内容需要登录 Cookie 才能访问，请在 spider_xhs/.env 中配置 COOKIES 后重试。"
         )
 
     async with aiohttp.ClientSession() as session:

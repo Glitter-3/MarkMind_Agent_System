@@ -83,88 +83,50 @@ MarkMind_Agent_System
 
 # 🖥️ Run the Project
 
-## Terminal 1 — Server:
+### 1. 启动数据库（SurrealDB）
+建议在**项目根目录**启动，并使用**本地持久化存储**，避免重启后丢数据：
 
 ```bash
-cd server
-uv sync
-uv run fastapi dev main.py
+cd /Users/starry/Downloads/MarkMind_Agent_System
+surreal start --log info --user root --pass root rocksdb://markmind.db
 ```
 
-## Terminal 2 — Client:
+说明：
+
+- 数据库服务监听在：`127.0.0.1:8000`
+- 数据会持久化保存到项目根目录下的 `markmind.db`
+- 以后请尽量在**同一个目录**下使用同一条命令启动，这样会一直连接同一份本地数据库
+
+### 2. 启动后端（FastAPI）
+新开一个终端：
 
 ```bash
-cd client
+cd /Users/starry/Downloads/MarkMind_Agent_System/server
+source .venv/bin/activate
+uv run uvicorn main:app --reload --port 8080
+```
+
+说明：
+
+- 后端 API 地址：`http://127.0.0.1:8080`
+- 当前前端默认会请求：`http://127.0.0.1:8080/api`
+
+### 3. 启动前端（Vite）
+再新开一个终端：
+
+```bash
+cd /Users/starry/Downloads/MarkMind_Agent_System/client
 pnpm install
 pnpm dev
 ```
 
-启动完成后，在本地浏览器即可访问系统。
+说明：
 
-### 1. 安装依赖
+- 前端开发地址通常是：`http://localhost:5173`
 
-使用 uv（推荐）:
-```bash
-uv sync
-```
+### 4. 启动顺序
+推荐按下面顺序启动：
 
-或使用 pip:
-```bash
-pip install -e .
-```
-
-### 2. 配置环境变量
-
-复制 `.env.example` 到 `.env` 并配置：
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env` 文件，设置你的 OpenAI API 配置。
-
-如果你有 Tavily 实例并想让 Agent 能调用 Tavily，请在 `.env` 中设置：
-
-```dotenv
-TAVILY_ENABLED=true
-TAVILY_API_KEY=your_key_here
-TAVILY_HOST=https://api.tavily.example
-```
-
-### 3. 启动 SurrealDB
-
-```bash
-surreal start --log trace --user root --pass root memory
-```
-
-或使用文件存储:
-```bash
-surreal start --log trace --user root --pass root file://markmind.db
-```
-
-### 4. 初始化数据库
-
-```bash
-python -m app.init_db
-```
-
-这会创建数据库表结构并插入测试数据。
-
-### 5. 启动 server
-
-```bash
-cd server
-fastapi dev main.py -- port 8080
-```
-
-服务将在 http://localhost:8080 启动。
-
-### 6. 启动 client
-
-```bash
-cd client
-pnpm install
-pnpm dev
-```
-
-启动完成后，在本地浏览器即可访问系统。
+1. **先启动数据库**
+2. **再启动后端**
+3. **最后启动前端**

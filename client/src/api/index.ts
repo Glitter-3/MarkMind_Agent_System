@@ -15,6 +15,17 @@ import type {
 // Fallback to localhost when the env var is not provided.
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://127.0.0.1:8080/api'
 
+async function getErrorMessage(res: Response, fallback: string): Promise<string> {
+    try {
+        const data = await res.json()
+        if (typeof data?.detail === 'string' && data.detail.trim()) return data.detail
+        if (typeof data?.message === 'string' && data.message.trim()) return data.message
+    } catch {
+        // ignore non-json error bodies
+    }
+    return fallback
+}
+
 // Graph API
 export async function getGraphOverview(): Promise<GraphOverview> {
     const res = await fetch(`${API_BASE}/graph/overview`)
@@ -90,7 +101,7 @@ export async function updateDocument(docId: string, request: UpdateDocumentReque
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(request),
     })
-    if (!res.ok) throw new Error('Failed to update document')
+    if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to update document'))
     return res.json()
 }
 
@@ -99,7 +110,7 @@ export async function deleteDocument(docId: string): Promise<unknown> {
         method: 'DELETE',
     })
     if (!res.ok) {
-        throw new Error('Failed to delete document')
+        throw new Error(await getErrorMessage(res, 'Failed to delete document'))
     }
     return res.json()
 }
@@ -158,7 +169,7 @@ export async function updateConcept(conceptId: string, name: string, desc: strin
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, desc }),
     })
-    if (!res.ok) throw new Error('Failed to update concept')
+    if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to update concept'))
     return res.json()
 }
 
@@ -166,21 +177,21 @@ export async function deleteConcept(conceptId: string): Promise<unknown> {
     const res = await fetch(`${API_BASE}/graph/concept/${encodeURIComponent(conceptId)}`, {
         method: 'DELETE',
     })
-    if (!res.ok) throw new Error('Failed to delete concept')
+    if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to delete concept'))
     return res.json()
 }
 
 export async function deleteMention(docId: string, conceptId: string): Promise<unknown> {
     const url = `${API_BASE}/graph/relation/mention?doc_id=${encodeURIComponent(docId)}&concept_id=${encodeURIComponent(conceptId)}`
     const res = await fetch(url, { method: 'DELETE' })
-    if (!res.ok) throw new Error('Failed to delete mention')
+    if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to delete mention'))
     return res.json()
 }
 
 export async function deleteRelated(fromId: string, toId: string): Promise<unknown> {
     const url = `${API_BASE}/graph/relation/related?from_id=${encodeURIComponent(fromId)}&to_id=${encodeURIComponent(toId)}`
     const res = await fetch(url, { method: 'DELETE' })
-    if (!res.ok) throw new Error('Failed to delete relation')
+    if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to delete relation'))
     return res.json()
 }
 
@@ -190,6 +201,6 @@ export async function createRelated(fromId: string, toId: string, desc: string):
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ from_id: fromId, to_id: toId, desc }),
     })
-    if (!res.ok) throw new Error('Failed to create relation')
+    if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to create relation'))
     return res.json()
 }
